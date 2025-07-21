@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LeetCode Notes Deck</title>
+  <link rel="stylesheet" href="styles/popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <header class="popup-header">
+      <h1>📝 Notes Deck</h1>
+      <div class="header-stats">
+        <span id="notes-count">0 notes</span>
+      </div>
+    </header>
+
+    <div class="search-container">
+      <input type="text" id="search-input" placeholder="Search notes, titles, or problems..." />
+      <button id="clear-search" title="Clear search">×</button>
+    </div>
+
+    <div class="filter-container">
+      <select id="sort-select">
+        <option value="recent">Most Recent</option>
+        <option value="oldest">Oldest First</option>
+        <option value="problem">By Problem</option>
+        <option value="title">By Title</option>
+        <option value="content">By Content Length</option>
+      </select>
+      <button id="refresh-notes" title="Refresh notes">🔄</button>
+    </div>
+
+    <div class="notes-list" id="notes-list">
+      <div class="empty-state" id="empty-state">
+        <div class="empty-icon">📝</div>
+        <h3>No notes yet</h3>
+        <p>Start by visiting a LeetCode problem and creating your first note!</p>
+        <button id="visit-leetcode">Visit LeetCode</button>
+      </div>
+    </div>
+
+    <footer class="popup-footer">
+      <button id="export-notes" title="Export all notes">📤 Export</button>
+      <button id="clear-all-notes" title="Clear all notes" class="danger">🗑️ Clear All</button>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
