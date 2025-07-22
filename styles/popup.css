@@ -1,4 +1,4 @@
-/* Styles for LeetCode Sticky Notes popup */
+
 
 * {
   margin: 0;
@@ -20,7 +20,6 @@ body {
   height: 100%;
 }
 
-/* Header */
 .popup-header {
   background: #ffa116;
   color: white;
@@ -40,7 +39,7 @@ body {
   opacity: 0.9;
 }
 
-/* Search */
+
 .search-container {
   position: relative;
   padding: 12px;
@@ -84,7 +83,6 @@ body {
   background: #f0f0f0;
 }
 
-/* Filter */
 .filter-container {
   display: flex;
   gap: 8px;
@@ -120,7 +118,7 @@ body {
   background: #e9ecef;
 }
 
-/* Notes List */
+
 .notes-list {
   flex: 1;
   overflow-y: auto;
@@ -259,7 +257,6 @@ body {
   color: #856404;
 }
 
-/* Empty State */
 .empty-state {
   text-align: center;
   padding: 40px 20px;
@@ -299,7 +296,6 @@ body {
   background: #ff8c00;
 }
 
-/* Footer */
 .popup-footer {
   padding: 12px;
   background: white;
@@ -334,7 +330,6 @@ body {
   border-color: #dc3545;
 }
 
-/* Error Message */
 .error-message {
   background: #f8d7da;
   color: #721c24;
@@ -357,7 +352,6 @@ body {
   }
 }
 
-/* Scrollbar Styling */
 .notes-list::-webkit-scrollbar {
   width: 6px;
 }
@@ -379,7 +373,7 @@ body {
 @media (prefers-color-scheme: dark) {
   body {
     background: #1a1a1a;
-    color: #e0e0e0;
+    color: #242424;
   }
   
   .popup-container {

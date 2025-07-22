@@ -1,39 +1,160 @@
-// Content script for LeetCode Sticky Notes extension
-
+function debounce(func, delay) {
+    let timeout;
+    return function(...args) {
+        const context = this;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(context, args), delay);
+    };
+}
 class LeetCodeStickyNotes {
   constructor() {
     this.notes = new Map();
     this.isDragging = false;
     this.dragOffset = { x: 0, y: 0 };
-    this.currentProblemUrl = this.getCurrentProblemUrl();
     this.noteContainer = null;
     this.editingTitle = null;
+    this.saveNoteDebounced = debounce(this.saveNote.bind(this), 500);
+
+    //Properties to track the current page state
+    this.problemTitle = 'Unknown Problem';
+    this.currentProblemSlug = null;
     
     this.init();
   }
 
+
   init() {
-    this.createNoteContainer();
-    // Add delay for button placement to ensure DOM is ready
-    setTimeout(() => {
-      this.addCreateNoteButton();
-    }, 500);
-    this.loadExistingNotes();
+    this.currentProblemSlug = this.getProblemSlug();
+    this.setupUrlObserver(); // Start watching for page changes
+    this.runPageSetup();     // Run setup for the initial page
+  }
+
+
+  runPageSetup() {
+    console.log("LeetCode Notes: Setting up for problem ->", this.currentProblemSlug);
+    this.problemTitle = 'Unknown Problem'; // Reset title
+    this.findTitleWithRetry();             // Find title for the new page
+
+    // Reset the notes container for the new page
+    if (this.noteContainer) {
+      this.noteContainer.innerHTML = '';
+    } else {
+      this.createNoteContainer();
+    }
+    
+    this.notes.clear();
+    this.addCreateNoteButton();  
+    this.loadExistingNotes();     // Load notes for the new problem
     this.setupKeyboardShortcuts();
   }
 
-  getCurrentProblemUrl() {
-    // Extract problem slug from URL
-    const pathMatch = window.location.pathname.match(/\/problems\/([^\/]+)/);
-    return pathMatch ? pathMatch[1] : window.location.pathname;
+  setupUrlObserver() {
+    setInterval(() => {
+        const newSlug = this.getProblemSlug();
+        if (newSlug && newSlug !== this.currentProblemSlug) {
+            console.log(`LeetCode Notes: Navigation detected. New problem: ${newSlug}`);
+            this.currentProblemSlug = newSlug;
+            this.runPageSetup(); //Re-run everything for the new page.
+        }
+    }, 500); // Check the URL every half-second
   }
 
+  
+  getProblemSlug() {
+    const pathMatch = window.location.pathname.match(/\/problems\/([^\/]+)/);
+    return pathMatch ? pathMatch[1] : null;
+  }
+
+  
+  getProblemTitle() {
+    //Try to get the title directly from the page's HTML.
+    const titleElement = document.querySelector('[data-cy="question-title"]');
+    if (titleElement && titleElement.innerText.trim()) {
+      const fullTitle = titleElement.innerText.trim();
+      const titleParts = fullTitle.split('. ');
+      return titleParts.length > 1 ? titleParts[1] : titleParts[0];
+    }
+    
+    // If the HTML element isn't found, build the title from the URL slug.
+    const slug = this.getProblemSlug();
+    if (slug) {
+      return slug.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    }
+    
+    // Absolute fallback.
+    return 'Unknown Problem';
+  }
+
+  findTitleWithRetry() {
+    let attempts = 0;
+    const maxAttempts = 20; // 5 seconds total
+
+    const intervalId = setInterval(() => {
+      const foundTitle = this.getProblemTitle();
+      if (foundTitle && foundTitle !== 'Unknown Problem') {
+        this.problemTitle = foundTitle;
+        console.log(`LeetCode Notes: Title found -> "${this.problemTitle}"`);
+        clearInterval(intervalId);
+      } else if (attempts >= maxAttempts) {
+        clearInterval(intervalId);
+      }
+      attempts++;
+    }, 250);
+  }
+
+  
+  loadExistingNotes() {
+    if (!this.currentProblemSlug) return;
+    chrome.runtime.sendMessage({
+      action: 'loadNotes',
+      problemUrl: this.currentProblemSlug // Uses the correctly updated slug
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error("Error loading notes:", chrome.runtime.lastError.message);
+        return;
+      }
+      if (response && response.success && response.notes) {
+        response.notes.forEach(noteData => {
+          if (!noteData.hidden) this.createNote(noteData);
+        });
+      }
+    });
+  }
+
+  saveNote(note) {
+    const noteId = note.dataset.noteId;
+    const textarea = note.querySelector('.note-textarea');
+    const titleElement = note.querySelector('.note-title');
+    
+    const noteData = {
+      id: noteId,
+      title: titleElement.textContent.trim(),
+      content: textarea ? textarea.value : '',
+      position: { x: parseInt(note.style.left), y: parseInt(note.style.top) },
+      minimized: note.classList.contains('minimized'),
+      hidden: note.style.display === 'none',
+      problemUrl: this.currentProblemSlug, // Uses the correctly updated slug
+      problemTitle: this.problemTitle,     // Uses the correctly updated title
+      createdAt: note.dataset.createdAt || new Date().toISOString()
+    };
+    
+    if (!note.dataset.createdAt) {
+      note.dataset.createdAt = noteData.createdAt;
+    }
+
+    chrome.runtime.sendMessage({
+      action: 'saveNote',
+      note: noteData
+    });
+  }
+
+  
   createNoteContainer() {
     this.noteContainer = document.createElement('div');
     this.noteContainer.id = 'leetcode-notes-container';
     document.body.appendChild(this.noteContainer);
   }
-
+  
   addCreateNoteButton() {
     // Don't add button if it already exists
     if (document.getElementById('leetcode-notes-btn')) {
@@ -47,7 +168,6 @@ class LeetCodeStickyNotes {
     notesButton.title = 'LeetCode Notes - Click to view/create notes';
     notesButton.addEventListener('click', () => this.showAllNotesPanel());
     
-    // Always use floating button position - bottom right corner
     notesButton.style.cssText = `
       position: fixed;
       bottom: 20px;
@@ -69,7 +189,7 @@ class LeetCodeStickyNotes {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     `;
     
-    // Add hover effects
+    //hover effects
     notesButton.addEventListener('mouseenter', () => {
       notesButton.style.transform = 'scale(1.1)';
       notesButton.style.boxShadow = '0 6px 20px rgba(255, 161, 22, 0.4)';
@@ -85,14 +205,30 @@ class LeetCodeStickyNotes {
     document.body.appendChild(notesButton);
     console.log('LeetCode Notes: Circular floating button added');
   }
-
   createNote(existingNote = null) {
-    const noteId = existingNote?.id || `note_${Date.now()}`;
+    const notePosition = existingNote?.position || { x: 20, y: 100 };
+    const isHidden = existingNote?.hidden || false;
+    const isMinimized = existingNote?.minimized || false;
+    const newNote = {
+        id: existingNote?.id || `note_${Date.now()}_${this.noteCounter++}`,
+        content: existingNote?.content || '',
+        position: notePosition,
+        minimized: isMinimized,
+        hidden: isHidden,
+        createdAt: existingNote?.createdAt || new Date().toISOString(),
+        lastModified: new Date().toISOString(),
+        problemTitle: this.problemTitle, 
+        problemUrl: this.currentProblemSlug,
+        isLocked: existingNote?.isLocked || false,
+        encryptedContent: existingNote?.encryptedContent || null,
+        passwordHash: existingNote?.passwordHash || null,
+        passwordSalt: existingNote?.passwordSalt || null
+    }
+    newNote.title = existingNote?.title || generateDefaultTitle(newNote.content, newNote.problemTitle);
+    const noteId = newNote.id;
     const note = document.createElement('div');
     note.className = 'leetcode-sticky-note';
     note.dataset.noteId = noteId;
-    
-    const isMinimized = existingNote?.minimized || false;
     if (isMinimized) {
       note.classList.add('minimized');
     }
@@ -103,35 +239,46 @@ class LeetCodeStickyNotes {
     const isLocked = existingNote?.isLocked || false;
     
     note.innerHTML = `
-      <div class="note-header">
-        <div class="note-drag-handle">⋮⋮</div>
-        <div class="note-controls">
-          <button class="note-lock" title="${isLocked ? 'Locked' : 'Lock Note'}" ${isLocked ? 'disabled' : ''}>
-            ${isLocked ? '🔒' : '🔓'}
-          </button>
-          <button class="note-minimize" title="${isMinimized ? 'Maximize' : 'Minimize'}">
-            ${isMinimized ? '□' : '−'}
-          </button>
-          <button class="note-delete" title="Hide">×</button>
+        <div class="note-header">
+            <div class="note-drag-handle" title="Drag note">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <circle cx="5" cy="4" r="1.5"/><circle cx="11" cy="4" r="1.5"/>
+                <circle cx="5" cy="8" r="1.5"/><circle cx="11" cy="8" r="1.5"/>
+                <circle cx="5" cy="12" r="1.5"/><circle cx="11" cy="12" r="1.5"/>
+            </svg>
+            </div>
+            <div class="note-controls">
+            <button class="note-lock" title="${isLocked ? 'Locked' : 'Lock Note'}" ${isLocked ? 'disabled' : ''}>
+                ${isLocked ? 
+                `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>` : 
+                `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>`
+                }
+            </button>
+            <button class="note-minimize" title="${isMinimized ? 'Maximize' : 'Minimize'}">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+            <button class="note-delete" title="Hide">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+            </div>
         </div>
-      </div>
-      <div class="note-title-container">
-        <h3 class="note-title" contenteditable="${!isLocked}" spellcheck="false">${this.escapeHtml(noteTitle)}</h3>
-      </div>
-      <div class="note-content" ${isMinimized ? 'style="display: none;"' : ''}>
-        ${isLocked ? 
-          `<div class="note-locked-content">
-            <div class="lock-icon">🔒</div>
-            <p>This note is password protected</p>
-            <input type="password" class="unlock-password" placeholder="Enter password to unlock">
-            <button class="unlock-btn">Unlock</button>
-          </div>` :
-          `<textarea placeholder="Enter your notes here..." class="note-textarea">${existingNote?.content || ''}</textarea>
-           <div class="note-security-controls">
-             <button class="set-password-btn" title="Set Password">🔒 Lock Note</button>
-           </div>`
-        }
-      </div>
+        <div class="note-title-container">
+            <h3 class="note-title" contenteditable="${!isLocked}" spellcheck="false">${escapeHtml(noteTitle)}</h3>
+        </div>
+        <div class="note-content" ${isMinimized ? 'style="display: none;"' : ''}>
+            ${isLocked ? 
+            `<div class="note-locked-content">
+                <div class="lock-icon">🔒</div>
+                <p>This note is password protected</p>
+                <input type="password" class="unlock-password" placeholder="Enter password to unlock">
+                <button class="unlock-btn">Unlock</button>
+            </div>` :
+            `<textarea placeholder="Enter your notes here..." class="note-textarea">${existingNote?.content || ''}</textarea>
+            <div class="note-security-controls">
+                <button class="set-password-btn" title="Set Password">🔒 Lock Note</button>
+            </div>`
+            }
+        </div>
     `;
 
     // Position note
@@ -176,23 +323,23 @@ class LeetCodeStickyNotes {
     // Minimize/Maximize
     minimizeBtn.addEventListener('click', () => this.toggleMinimize(note));
     
-    // Hide note (don't delete)
+    // Hide note
     deleteBtn.addEventListener('click', () => this.hideNote(note));
     
     // Lock/Unlock functionality
     if (lockBtn && !lockBtn.disabled) {
-      lockBtn.addEventListener('click', () => this.showPasswordDialog(note));
+      lockBtn.addEventListener('click', () => this.displayPasswordSetupUI(note));
     }
     
     // Auto-save on content change (only if not locked)
     if (textarea) {
-      textarea.addEventListener('input', () => this.saveNote(note));
+      textarea.addEventListener('input', () => this.saveNoteDebounced(note));
       textarea.addEventListener('blur', () => this.saveNote(note));
     }
 
     // Password setting
     if (setPasswordBtn) {
-      setPasswordBtn.addEventListener('click', () => this.showPasswordDialog(note));
+      setPasswordBtn.addEventListener('click', () => this.displayPasswordSetupUI(note));
     }
 
     // Unlock functionality
@@ -212,6 +359,64 @@ class LeetCodeStickyNotes {
     this.setupTitleEditing(titleElement, note);
   }
 
+  displayPasswordSetupUI(note) {
+    const securityControls = note.querySelector('.note-security-controls');
+    if (!securityControls) return;
+
+    // Store the original "Lock Note" button to restore it on cancel.
+    const originalControlsHTML = securityControls.innerHTML;
+
+    securityControls.innerHTML = `
+        <div class="password-setup-container">
+        <div class="password-input-wrapper">
+            <input type="password" class="password-setup-input" placeholder="Enter password...">
+            <button class="password-toggle-visibility" title="Show password">👁️</button>
+        </div>
+        <div class="password-setup-actions">
+            <button class="password-confirm-btn">Set</button>
+            <button class="password-cancel-btn">Cancel</button>
+        </div>
+        </div>
+    `;
+
+    const passwordInput = securityControls.querySelector('.password-setup-input');
+    const confirmBtn = securityControls.querySelector('.password-confirm-btn');
+    const cancelBtn = securityControls.querySelector('.password-cancel-btn');
+    const toggleBtn = securityControls.querySelector('.password-toggle-visibility');
+
+    passwordInput.focus();
+
+    // Event listener for the "Set" button
+    confirmBtn.addEventListener('click', () => {
+        const password = passwordInput.value;
+        if (password && password.trim()) {
+        this.lockNoteWithPassword(note, password.trim());
+        }
+    });
+
+    // Event listener for the "Cancel" button
+    cancelBtn.addEventListener('click', () => {
+        securityControls.innerHTML = originalControlsHTML;
+        // Re-attach the event listener to the restored button
+        const newSetPasswordBtn = securityControls.querySelector('.set-password-btn');
+        if (newSetPasswordBtn) {
+            newSetPasswordBtn.addEventListener('click', () => this.displayPasswordSetupUI(note));
+        }
+    });
+
+    toggleBtn.addEventListener('click', () => {
+        if (passwordInput.type === 'password') {
+        passwordInput.type = 'text';
+        toggleBtn.textContent = '🙈';
+        toggleBtn.title = 'Hide password';
+        } else {
+        passwordInput.type = 'password';
+        toggleBtn.textContent = '👁️';
+        toggleBtn.title = 'Show password';
+        }
+    });
+  }
+
   setupTitleEditing(titleElement, note) {
     // Handle title editing
     titleElement.addEventListener('focus', () => {
@@ -221,6 +426,7 @@ class LeetCodeStickyNotes {
 
     titleElement.addEventListener('blur', () => {
       this.finishTitleEdit(titleElement, note);
+      this.saveNote(note);
     });
 
     titleElement.addEventListener('keydown', (e) => {
@@ -248,7 +454,7 @@ class LeetCodeStickyNotes {
       const textarea = note.querySelector('.note-textarea');
       const content = textarea.value.trim();
       const problemTitle = this.getProblemTitle();
-      titleElement.textContent = this.generateDefaultTitle(content, problemTitle);
+      titleElement.textContent = generateDefaultTitle(content, problemTitle);
     } else if (newTitle.length > 100) {
       // Limit title length
       titleElement.textContent = newTitle.substring(0, 97) + '...';
@@ -257,26 +463,6 @@ class LeetCodeStickyNotes {
     titleElement.removeAttribute('data-original-title');
     this.editingTitle = null;
     this.saveNote(note);
-  }
-
-  generateDefaultTitle(content, problemTitle) {
-    if (content && content.trim()) {
-      // Use first line of content, max 50 characters
-      const firstLine = content.split('\n')[0].trim();
-      return firstLine.length > 50 ? firstLine.substring(0, 47) + '...' : firstLine;
-    }
-    
-    if (problemTitle) {
-      return `Notes for ${problemTitle}`;
-    }
-    
-    return 'Untitled Note';
-  }
-
-  escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
   }
 
   startDrag(e, note) {
@@ -343,13 +529,8 @@ class LeetCodeStickyNotes {
   hideNote(note) {
     const noteId = note.dataset.noteId;
     
-    // Just hide the note, don't delete from storage
     note.style.display = 'none';
-    
-    // Mark as hidden in our notes map but don't delete
     this.notes.set(noteId, { ...this.notes.get(noteId), hidden: true });
-    
-    // Update the note in storage to mark it as hidden
     this.saveNote(note);
   }
 
@@ -369,44 +550,6 @@ class LeetCodeStickyNotes {
     }
   }
 
-  saveNote(note) {
-    const noteId = note.dataset.noteId;
-    const textarea = note.querySelector('.note-textarea');
-    const titleElement = note.querySelector('.note-title');
-    const rect = note.getBoundingClientRect();
-    
-    const noteData = {
-      id: noteId,
-      title: titleElement.textContent.trim(),
-      content: textarea ? textarea.value : '',
-      position: {
-        x: parseInt(note.style.left),
-        y: parseInt(note.style.top)
-      },
-      minimized: note.classList.contains('minimized'),
-      hidden: note.style.display === 'none',
-      problemUrl: this.currentProblemUrl,
-      problemTitle: this.getProblemTitle(),
-      createdAt: note.dataset.createdAt || new Date().toISOString()
-    };
-    
-    if (!note.dataset.createdAt) {
-      note.dataset.createdAt = noteData.createdAt;
-    }
-
-    chrome.runtime.sendMessage({
-      action: 'saveNote',
-      note: noteData
-    });
-  }
-
-  showPasswordDialog(note) {
-    const password = prompt('Enter a password to lock this note:');
-    if (password && password.trim()) {
-      this.lockNoteWithPassword(note, password.trim());
-    }
-  }
-
   lockNoteWithPassword(note, password) {
     const noteId = note.dataset.noteId;
     const textarea = note.querySelector('.note-textarea');
@@ -423,7 +566,7 @@ class LeetCodeStickyNotes {
       },
       minimized: note.classList.contains('minimized'),
       hidden: note.style.display === 'none',
-      problemUrl: this.currentProblemUrl,
+      problemUrl: this.currentProblemSlug,
       problemTitle: this.getProblemTitle(),
       createdAt: note.dataset.createdAt || new Date().toISOString()
     };
@@ -433,7 +576,6 @@ class LeetCodeStickyNotes {
       note: noteData
     }, (response) => {
       if (response.success) {
-        // Refresh the note to show locked state
         this.refreshNote(note, { ...noteData, isLocked: true });
       } else {
         alert('Failed to lock note: ' + response.error);
@@ -498,17 +640,11 @@ class LeetCodeStickyNotes {
     newNote.dataset.createdAt = note.dataset.createdAt;
   }
 
-  getProblemTitle() {
-    const titleElement = document.querySelector('[data-cy="question-title"]') ||
-                        document.querySelector('.css-v3d350') ||
-                        document.querySelector('h1');
-    return titleElement ? titleElement.textContent.trim() : 'Unknown Problem';
-  }
 
   loadExistingNotes() {
     chrome.runtime.sendMessage({
       action: 'loadNotes',
-      problemUrl: this.currentProblemUrl
+      problemUrl: this.currentProblemSlug
     }, (response) => {
       if (response.success && response.notes) {
         response.notes.forEach(noteData => {
@@ -523,8 +659,7 @@ class LeetCodeStickyNotes {
 
   setupKeyboardShortcuts() {
     document.addEventListener('keydown', (e) => {
-      // Ctrl/Cmd + Shift + N to create new note
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'N') {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'L') {
         e.preventDefault();
         this.createNote();
       }
@@ -547,7 +682,7 @@ class LeetCodeStickyNotes {
     // Get all notes for current problem
     chrome.runtime.sendMessage({
       action: 'loadNotes',
-      problemUrl: this.currentProblemUrl
+      problemUrl: this.currentProblemSlug
     }, (response) => {
       if (response.success && response.notes) {
         this.renderNotesPanel(panel, response.notes);
@@ -560,7 +695,7 @@ class LeetCodeStickyNotes {
   }
 
   renderNotesPanel(panel, notes) {
-    const problemTitle = this.getProblemTitle();
+    const problemTitle = this.problemTitle;
     
     panel.innerHTML = `
       <div class="notes-panel-header">
@@ -573,7 +708,7 @@ class LeetCodeStickyNotes {
           notes.map(note => `
             <div class="note-preview ${note.hidden ? 'hidden-note' : ''}" data-note-id="${note.id}">
               <div class="note-preview-header">
-                <h4 class="note-preview-title">${this.escapeHtml(note.title || 'Untitled Note')}</h4>
+                <h4 class="note-preview-title">${escapeHtml(note.title || 'Untitled Note')}</h4>
                 <span class="note-preview-status ${note.hidden ? 'hidden' : note.isLocked ? 'locked' : note.minimized ? 'minimized' : 'expanded'}">
                   ${note.hidden ? 'Hidden' : note.isLocked ? 'Locked' : note.minimized ? 'Minimized' : 'Expanded'}
                 </span>
@@ -589,11 +724,11 @@ class LeetCodeStickyNotes {
                 <span class="note-preview-date">${new Date(note.createdAt).toLocaleDateString()}</span>
               </div>
               <div class="note-preview-actions">
-                <button class="note-action-btn reopen-btn" data-note-id="${note.id}" data-action="reopen">
-                  👁️ Show Note
+                <button class="note-action-btn" data-note-id="${note.id}" data-action="reopen" title="Show Note on Page">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                 </button>
-                <button class="note-action-btn delete-btn" data-note-id="${note.id}" data-action="delete">
-                  🗑️ Delete
+                <button class="note-action-btn delete-btn" data-note-id="${note.id}" data-action="delete" title="Delete Note">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                 </button>
               </div>
             </div>
@@ -653,7 +788,7 @@ class LeetCodeStickyNotes {
   reopenNote(noteId) {
     chrome.runtime.sendMessage({
       action: 'loadNotes',
-      problemUrl: this.currentProblemUrl
+      problemUrl: this.currentProblemSlug
     }, (response) => {
       if (response.success && response.notes) {
         const noteData = response.notes.find(n => n.id === noteId);

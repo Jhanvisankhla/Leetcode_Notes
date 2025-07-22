@@ -1,4 +1,3 @@
-// Popup script for LeetCode Sticky Notes extension
 
 class NotesPopup {
   constructor() {
@@ -16,7 +15,6 @@ class NotesPopup {
   }
 
   setupEventListeners() {
-    // Search functionality
     document.getElementById('search-input').addEventListener('input', (e) => {
       this.currentSearch = e.target.value.toLowerCase();
       this.filterAndDisplayNotes();
@@ -28,7 +26,6 @@ class NotesPopup {
       this.filterAndDisplayNotes();
     });
 
-    // Sort functionality
     document.getElementById('sort-select').addEventListener('change', (e) => {
       this.currentSort = e.target.value;
       this.filterAndDisplayNotes();
@@ -49,7 +46,6 @@ class NotesPopup {
       this.clearAllNotes();
     });
 
-    // Visit LeetCode
     document.getElementById('visit-leetcode').addEventListener('click', () => {
       chrome.tabs.create({ url: 'https://leetcode.com/problemset/' });
     });
@@ -75,7 +71,6 @@ class NotesPopup {
   }
 
   filterAndDisplayNotes() {
-    // Filter by search term
     this.filteredNotes = this.notes.filter(note => {
       if (!this.currentSearch) return true;
       
@@ -88,7 +83,6 @@ class NotesPopup {
       );
     });
 
-    // Sort notes
     this.sortNotes();
     
     // Display notes
@@ -131,16 +125,16 @@ class NotesPopup {
 
     if (this.filteredNotes.length === 0) {
       notesList.innerHTML = '';
-      notesList.appendChild(emptyState);
-      return;
+      emptyState.style.display = 'block';
+    }else{
+      emptyState.style.display = 'none'; 
+      notesList.innerHTML = ''; // Clear notes list before re-populating
+      
+      this.filteredNotes.forEach(note => {
+          const noteElement = this.createNoteElement(note);
+          notesList.appendChild(noteElement);
+      });
     }
-
-    notesList.innerHTML = '';
-    
-    this.filteredNotes.forEach(note => {
-      const noteElement = this.createNoteElement(note);
-      notesList.appendChild(noteElement);
-    });
   }
 
   createNoteElement(note) {
@@ -161,8 +155,8 @@ class NotesPopup {
     noteDiv.innerHTML = `
       <div class="note-item-header">
         <div class="note-titles">
-          <h3 class="note-title">${this.escapeHtml(noteTitle)}</h3>
-          <h4 class="note-problem-title">${this.escapeHtml(problemTitle)}</h4>
+          <h3 class="note-title">${escapeHtml(noteTitle)}</h3>
+          <h4 class="note-problem-title">${escapeHtml(problemTitle)}</h4>
         </div>
         <div class="note-actions">
           <button class="note-action-btn" data-action="open" title="Open problem">🔗</button>
@@ -170,7 +164,7 @@ class NotesPopup {
         </div>
       </div>
       <div class="note-content-preview">
-        ${this.escapeHtml(preview)}
+        ${escapeHtml(preview)}
       </div>
       <div class="note-metadata">
         <span class="note-date">Created: ${createdDate}</span>
@@ -198,12 +192,6 @@ class NotesPopup {
     });
 
     return noteDiv;
-  }
-
-  escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
   }
 
   openProblem(note) {
@@ -297,7 +285,6 @@ class NotesPopup {
   }
 }
 
-// Initialize popup when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
   new NotesPopup();
 });

@@ -1,6 +1,4 @@
-// Background service worker for LeetCode Sticky Notes extension
 
-// Install event - initialize storage if needed
 chrome.runtime.onInstalled.addListener(async () => {
   try {
     const result = await chrome.storage.local.get(['leetcodeNotes']);
@@ -14,6 +12,10 @@ chrome.runtime.onInstalled.addListener(async () => {
     console.error('Error initializing storage:', error);
   }
 });
+
+async function generateSalt() {
+    return crypto.getRandomValues(new Uint8Array(16)); // 16 bytes for a good salt
+}
 
 // Listen for messages from content script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -41,65 +43,70 @@ async function saveNote(note) {
     const result = await chrome.storage.local.get(['leetcodeNotes', 'noteCounter']);
     const notes = result.leetcodeNotes || {};
     const counter = result.noteCounter || 0;
-    
+
     if (!note.id) {
       note.id = `note_${counter + 1}`;
       await chrome.storage.local.set({ noteCounter: counter + 1 });
     }
-    
-    // Get existing note if it exists
+
     const existingNote = notes[note.id];
-    
-    // If we're updating an existing note, preserve its state
-    if (existingNote) {
-      // If existing note is locked and we're not providing a new password,
-      // preserve the locked state and don't overwrite encrypted content
-      if (existingNote.isLocked && !note.password) {
-        // Only update allowed fields for locked notes
-        const allowedFields = ['position', 'minimized', 'hidden', 'title', 'lastModified'];
-        const updatedNote = { ...existingNote };
-        
-        allowedFields.forEach(field => {
+    if (existingNote && existingNote.isLocked && !note.password) {
+      const allowedFields = ['position', 'minimized', 'hidden', 'title', 'lastModified'];
+      const updatedNote = { ...existingNote };
+
+      allowedFields.forEach(field => {
           if (note[field] !== undefined) {
-            updatedNote[field] = note[field];
+              updatedNote[field] = note[field];
           }
-        });
-        
-        updatedNote.lastModified = new Date().toISOString();
-        notes[note.id] = updatedNote;
-        
-        await chrome.storage.local.set({ leetcodeNotes: notes });
-        return { success: true, note: updatedNote };
+      });
+          
+      // Re-generate default title if title is empty on update
+      if (!updatedNote.title || updatedNote.title.trim() === '') {
+          updatedNote.title = generateDefaultTitle(updatedNote.content || '', updatedNote.problemTitle);
       }
+      updatedNote.lastModified = new Date().toISOString();
+      notes[note.id] = updatedNote;
+
+      await chrome.storage.local.set({ leetcodeNotes: notes });
+      return { success: true, note: updatedNote };
     }
-    
-    // Ensure backward compatibility - add title if missing
-    if (!note.title) {
-      note.title = generateDefaultTitle(note.content, note.problemTitle);
+
+    if (!note.title || note.title.trim() === '') {
+        note.title = generateDefaultTitle(note.content, note.problemTitle);
     }
-    
-    // Handle password protection
+
+      // Handle password protection for new lock or relock
     if (note.password) {
-      // Encrypt content if password is provided
       note.isLocked = true;
       note.encryptedContent = await encryptContent(note.content, note.password);
-      // Don't store the actual password, only a hash for verification
-      note.passwordHash = await hashPassword(note.password);
-      // Clear the plaintext content and password from storage
+      
+      // Generate and store a new salt for the password hash
+      const salt = await generateSalt();
+      note.passwordSalt = btoa(String.fromCharCode.apply(null, salt)); // Store salt in base64
+      note.passwordHash = await hashPasswordWithSalt(note.password, salt); // Hash password with the new salt
+      
+      // Clear the plaintext content and password from note object before storage
       delete note.content;
       delete note.password;
+    } 
+    else if (existingNote && !note.password && !note.isLocked && existingNote.passwordHash) {
+      // If a note was unlocked, clear its password-related fields
+      delete note.passwordHash;
+      delete note.passwordSalt;
+      delete note.encryptedContent;
     }
-    
+
     note.lastModified = new Date().toISOString();
     notes[note.id] = note;
-    
+
     await chrome.storage.local.set({ leetcodeNotes: notes });
     return { success: true, note: note };
   } catch (error) {
-    console.error('Error saving note:', error);
-    return { success: false, error: error.message };
-  }
+      console.error('Error saving note:', error);
+      return { success: false, error: error.message };
+    }
 }
+
 
 // Generate default title for notes
 function generateDefaultTitle(content, problemTitle) {
@@ -190,7 +197,7 @@ async function unlockNote(noteId, password) {
     }
     
     // Verify password
-    const isPasswordCorrect = await verifyPassword(password, note.passwordHash);
+    const isPasswordCorrect = await verifyPassword(password, note.passwordHash,note.passwordSalt);
     if (!isPasswordCorrect) {
       return { success: false, error: 'Incorrect password' };
     }
@@ -203,19 +210,21 @@ async function unlockNote(noteId, password) {
     note.isLocked = false;
     delete note.encryptedContent;
     delete note.passwordHash;
+    delete note.passwordSalt;
     note.lastModified = new Date().toISOString();
     
     // Save updated note
     await chrome.storage.local.set({ leetcodeNotes: notes });
     
     return { success: true, content: decryptedContent };
-  } catch (error) {
+  } 
+  catch (error) {
     console.error('Error unlocking note:', error);
     return { success: false, error: error.message };
   }
 }
 
-// Simple encryption using Web Crypto API
+//encryption using Web Crypto API
 async function encryptContent(content, password) {
   try {
     const encoder = new TextEncoder();
@@ -273,7 +282,7 @@ async function encryptContent(content, password) {
   }
 }
 
-// Simple decryption using Web Crypto API
+//decryption using Web Crypto API
 async function decryptContent(encryptedContent, password) {
   try {
     const encoder = new TextEncoder();
@@ -327,25 +336,38 @@ async function decryptContent(encryptedContent, password) {
 }
 
 // Hash password for verification
-async function hashPassword(password) {
-  try {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  } catch (error) {
-    console.error('Password hashing error:', error);
-    throw error;
-  }
+async function hashPasswordWithSalt(password, salt) {
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(password),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveBits']
+  );
+
+  const hashedPasswordBuffer = await crypto.subtle.deriveBits(
+  {
+    name: 'PBKDF2',
+    salt: salt,
+    iterations: 100000,
+    hash: 'SHA-256'
+  },
+    keyMaterial,
+    256 // Output bits for SHA-256 hash
+  );
+
+  const hashedPasswordArray = Array.from(new Uint8Array(hashedPasswordBuffer));
+  return hashedPasswordArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 // Verify password against hash
-async function verifyPassword(password, hash) {
-  try {
-    const hashedPassword = await hashPassword(password);
-    return hashedPassword === hash;
-  } catch (error) {
+async function verifyPassword(password, storedHash, storedSaltBase64) {
+  try{
+    const salt = new Uint8Array(atob(storedSaltBase64).split('').map(c => c.charCodeAt(0)));
+    const hashedPassword = await hashPasswordWithSalt(password, salt);
+    return hashedPassword === storedHash;
+  }catch (error) {
     console.error('Password verification error:', error);
     return false;
   }
