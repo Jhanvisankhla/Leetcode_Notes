@@ -25,14 +25,14 @@ A **Google Chrome Extension** that lets you add **draggable sticky notes** direc
 
 ## Screenshots
 
-### Sticky Notes on a LeetCode Problem
+### A seperate Panel for each Problem/Page
 ![A seperate panel for each problem/page](screenshots/1.png)
 
-### 🗂️ Multiple Notes on a Single Problem
+### Popup Dashboard where are notes are displayed irrespective of problem
 ![Popup Dashboard where are notes are displayed irrespective of problem](screenshots/2.png)
 
-### 📋 Popup Notes Dashboard
-![Dark mode for late nocturnals](screenshots/3.png)
+### Dark Mode for the Nocturnals
+![Dark mode for the nocturnals](screenshots/3.png)
 
 ---
 
