@@ -7,11 +7,11 @@ A **Google Chrome Extension** that lets you add **draggable sticky notes** direc
 
 ## Features
 
-**Draggable Sticky Notes** – Place notes anywhere on LeetCode problem pages.  
-**Persistent Storage** – Notes automatically save and reload when you revisit problems.  
-**Password Protection** – AES-GCM encryption + salted password hashing for secure notes.  
-**Problem-Aware Notes** – Each note is tied to a specific problem’s slug and title.   
-**Popup Dashboard** – Search, sort, export, and delete all notes from one place.   
+1. **Popup Dashboard** – Search, sort, export, and delete all notes from one place.  
+2. **Persistent Storage** – Notes automatically save and reload when you revisit problems.  
+3. **Password Protection** – AES-GCM encryption + salted password hashing for secure notes.  
+4. **Problem-Aware Notes** – Each note is tied to a specific problem’s slug and title.   
+5. **Draggable Sticky Notes** – Place notes anywhere on the page.
 
 ---
 
@@ -25,11 +25,11 @@ A **Google Chrome Extension** that lets you add **draggable sticky notes** direc
 
 ## Screenshots
 
-### A seperate Panel for each Problem/Page
+### A separate Panel for each Problem/Page
 ![A seperate panel for each problem/page](screenshots/1.png)
 
 ### Popup Dashboard where are notes are displayed irrespective of problem
-![Popup Dashboard where are notes are displayed irrespective of problem](screenshots/2.png)
+![Popup Dashboard where all notes are displayed irrespective of problem](screenshots/2.png)
 
 ### Dark Mode for the Nocturnals
 ![Dark mode for the nocturnals](screenshots/3.png)
@@ -49,20 +49,6 @@ A **Google Chrome Extension** that lets you add **draggable sticky notes** direc
 
 ---
 
-## Usage
-
-### **On LeetCode Problem Pages**
-- Click the floating **📝 button** to open notes.
-- Drag, edit, minimize, or hide notes as needed.
-- **Lock Notes:** Click the lock icon or set a password for privacy.
-
-### **In the Popup Dashboard**
-- Search by **title, content, or problem**.
-- Sort by **recent, oldest, problem, title, or content size**.
-- Click a note to jump directly to its problem.
-
----
-
 ## Tech Stack
 
 - **Manifest V3 Chrome Extension**  
@@ -70,21 +56,6 @@ A **Google Chrome Extension** that lets you add **draggable sticky notes** direc
 - **Web Crypto API** – Encryption & password hashing  
 - **Chrome Storage API** – Persistent local storage  
 - **Popup UI** – HTML/CSS/JS  
-
----
-
-## Project Structure
-
-```
-├── background.js        # Handles storage, encryption, and messaging
-├── content.js           # Injects sticky notes UI into LeetCode pages
-├── popup.html           # Popup dashboard
-├── popup.js             # Search, sort, export, and clear functionality
-├── util.js              # Utility functions (title generation, HTML escaping)
-├── manifest.json        # Chrome Extension Manifest (v3)
-├── icons/               # Extension icons (16x, 48x, 128x)
-└── styles/              # CSS for content and popup
-```
 
 ---
 
